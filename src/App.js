@@ -7,9 +7,9 @@ export default function App() {
   const [data, setData] = useState(null);
 
   const [value, setValues] = useState({
-    lawdCd: '',
-    dealYMD: '',
-    pageNo: ''
+    lawdCd: '11110',
+    dealYMD: '202507',
+    pageNo: '1'
   })
 
   const handleChange = (e) => {
@@ -23,11 +23,13 @@ export default function App() {
   }
 
   function onClick(){
+
+
     // 인증키-필수
     let serviceKey = "wrNlJtlld9YOEXrP5OjsQ2Pg00C2J7t8XMMUWfFIKkdfItYwfsbYWzLA3ILirKIbQMcoIWIqT2SHVhMy8cWzcg==";
-		let LAWD_CD = "11110"; // 지역코드-필수
-		let DEAL_YMD = "202407"; // 계약월(6자리)-필수
-		let pageNo = "1"; // 페이지 번호
+		let LAWD_CD = value.lawdCd; // 지역코드-필수
+		let DEAL_YMD = value.dealYMD; // 계약월(6자리)-필수
+		let pageNo = value.pageNo; // 페이지 번호
 		let numOfRows = "10"; // 한 페이지 결과 수
 
     let url = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?";
