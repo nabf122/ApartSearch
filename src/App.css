@@ -28,6 +28,15 @@
   color: #61dafb;
 }
 
+.search_box {
+  text-align: left;
+}
+
+.result_box {
+  text-align: left;
+  resize: none;
+}
+
 @keyframes App-logo-spin {
   from {
     transform: rotate(0deg);

@@ -5,6 +5,23 @@ import { useState } from "react";
 
 export default function App() {
   const [data, setData] = useState(null);
+
+  const [value, setValues] = useState({
+    lawdCd: '',
+    dealYMD: '',
+    pageNo: ''
+  })
+
+  const handleChange = (e) => {
+    setValues(prevValues => {
+      const {name, value} = e.target;
+      return {
+        ...prevValues,
+        [name]: value
+      }
+    });
+  }
+
   function onClick(){
     // 인증키-필수
     let serviceKey = "wrNlJtlld9YOEXrP5OjsQ2Pg00C2J7t8XMMUWfFIKkdfItYwfsbYWzLA3ILirKIbQMcoIWIqT2SHVhMy8cWzcg==";
@@ -35,15 +52,26 @@ export default function App() {
 
   return (
     <div className="App">
+      <form className='search_box'>
+        지역코드      <input type="text" name="lawdCd" value={value.lawdCd} onChange={handleChange} /><br></br>
+        계약월 6자리  <input type="text" name="dealYMD" value={value.dealYMD} onChange={handleChange} /><br></br>
+        페이지 번호   <input type="text" name="pageNo" value={value.pageNo} onChange={handleChange} />
+
+      </form>
+
+
       <div>
-        <button onClick={onClick}>불러오기</button>
+        <button onClick={onClick}>검색</button>
       </div>
       {data && (
-        <textarea
-          rows={7}
-          value={JSON.stringify(data, null, 2)}
-          readOnly={true}
-        />
+        <div className='result_box'>
+          <textarea
+            rows={30}
+            value={JSON.stringify(data, null, 2)}
+            readOnly={true}
+            cols={70}
+          />
+        </div>
       )}
     </div>
   );
