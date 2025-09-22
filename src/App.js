@@ -5,15 +5,22 @@ import { useState, useEffect } from "react";
 
 export default function App() {
   const [data, setData] = useState(null);
-  const [totalCnt, setCnt] = useState(null);
-  const [numOfRows, setRowNum] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // 네이게이터 변수
+  const [totalCnt, setTotCnt] = useState(null);  // 전체 조회 갯수
+  const [numOfRows, setRowNum] = useState(null);  // 페이지당 갯수
+  const [currentPage, setCurrentPage] = useState(1); // 처음 조회하면 현재 페이지를 1로 세팅
+  const [pageNums, setPageNums] = useState([]); // 페이지 번호 배열
+
+  const [totalPageNum, setTotalPageNum] = useState(null);
 
   const [value, setValues] = useState({
     lawdCd: '11110',
     dealYMD: '202507',
-    pageNo: '1'
+    pageNo: '1',
+    numOfRows: '10'
   })
 
   const handleChange = (e) => {
@@ -33,7 +40,7 @@ export default function App() {
 		let LAWD_CD = value.lawdCd; // 지역코드-필수
 		let DEAL_YMD = value.dealYMD; // 계약월(6자리)-필수
 		let pageNo = value.pageNo; // 페이지 번호
-		let numOfRows = "20"; // 한 페이지 결과 수
+		let numOfRows = value.numOfRows; // 한 페이지 결과 수
 
     let url = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?";
     url += "serviceKey=" + serviceKey;
@@ -52,8 +59,15 @@ export default function App() {
       .get(url)
       .then((response) => {
         setData(response.data.response.body.items.item);
-        setCnt(response.data.response.body.totalCount);
+        setTotCnt(response.data.response.body.totalCount);
         setRowNum(response.data.response.body.numOfRows);
+
+        const nums = [];
+        setTotalPageNum(Math.ceil(totalCnt/numOfRows));
+        for (let i = 1; i <= totalPageNum; i++) {
+          nums.push(i);
+        }
+        setPageNums(nums);
       });
   }
 
@@ -63,6 +77,13 @@ export default function App() {
         <h2 className="search-title">아파트 검색</h2>
         <input className="search-input" type="text" name="lawdCd" value={value.lawdCd} onChange={handleChange} /><br></br>
         <input className="search-input" type="text" name="dealYMD" value={value.dealYMD} onChange={handleChange} /><br></br>
+        <select className="search-input" name="numOfRows" onChange={handleChange}>
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30">30</option>
+          <option value="40">40</option>
+          <option value="50">50</option>
+        </select>
         <button className="search-button" onClick={onClick}>검색</button>
       </div>
     
@@ -87,9 +108,9 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {data.map((apt) => (
+              {data.map((apt, index) => (
                 <tr key={apt.aptSeq}>
-                  <td>{numOfRows}</td>
+                  <td>{index + 1}</td>
                   <td>{apt.aptNm}</td>
                   <td>{apt.buildYear}</td>
                   <td>{apt.aptDong}</td>
@@ -105,6 +126,42 @@ export default function App() {
               ))}
             </tbody>
           </table>
+
+          {/* 네비게이터 */}
+          <nav>
+            <ul className='pagination'>
+              {/* 이전 페이지 버튼 */}
+              
+                <button className="search-button"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  이전
+                </button>
+              {/* 페이지 번호 버튼들 */}
+              {pageNums.map(number => (
+                <li key={number}>
+                  <button className="search-button"
+                    onClick={() => setCurrentPage(number)}
+                    className={currentPage === number ? 'active' : ''}
+                  >
+                    {number}
+                  </button>
+                </li>
+              ))}
+              {/* 다음 페이지 버튼 */}
+                <button className="search-button"
+                  // 네비게이터 만드는 중..
+                  // onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPageNum))}
+                  onClick={onClick}
+                  
+                  disabled={currentPage === totalPageNum}
+                >
+                  다음
+                </button>
+              
+            </ul>
+          </nav>
         </div>
       )}
     
