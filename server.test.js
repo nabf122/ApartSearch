@@ -22,6 +22,26 @@ test('province queries combine district totals and paginate across district boun
   assert.equal(result.items[5].aptNm, `${codes[1]}-0`);
   assert.equal(result.items[17].aptNm, `${codes[1]}-12`);
 });
+test('all housing types paginate across providers and normalize villa rows', async () => {
+  const fetcher = async url => {
+    const villa = url.pathname.endsWith('/getRTMSDataSvcRHTrade2');
+    const totalCount = villa ? 13 : 25;
+    const page = Number(url.searchParams.get('pageNo'));
+    const items = Array.from({length: totalCount}, (_, i) => villa
+      ? {mhouseNm: `Villa ${i}`, umdNm: '청운동', jibun: '1'}
+      : {aptNm: `Apartment ${i}`}).slice((page - 1) * 20, page * 20);
+    return {ok: true, text: async () => JSON.stringify({
+      response: {header: {resultCode: '000'}, body: {totalCount, items: {item: items}}},
+    })};
+  };
+  const result = await queryApartments(fetcher, 'test', '11110', '202610', 2, 20, 'all');
+  assert.equal(result.totalCount, 38);
+  assert.equal(result.items.length, 18);
+  assert.equal(result.items[4].aptNm, 'Apartment 24');
+  assert.equal(result.items[5].aptNm, 'Villa 0');
+  assert.equal(result.items[5].roadNm, '청운동 1');
+  assert.equal(result.items[5].housingType, 'villa');
+});
 const xml = items => `<response><header><resultCode>000</resultCode></header><body><totalCount>${items ? 1 : 0}</totalCount><items>${items}</items></body></response>`;
 test('normalizes XML single item, empty items and JSON arrays', () => {
   assert.equal(normalize(xml('<item><aptNm>테스트</aptNm><dealAmount>50,000</dealAmount></item>'),1,10).items[0].dealAmount,'50,000');

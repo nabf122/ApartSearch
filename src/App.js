@@ -5,7 +5,7 @@ import regions from './regions.json';
 
 const columns = [
   { key: 'index', label: '순번', numeric: true },
-  { key: 'aptNm', label: '아파트 / 도로명' },
+  { key: 'aptNm', label: '건물명 / 주소' },
   { key: 'dealAmount', label: '거래 금액 (만원)', numeric: true },
   { key: 'excluUseAr', label: '전용면적 (㎡)', numeric: true },
   { key: 'floor', label: '층 / 동', numeric: true },
@@ -39,6 +39,7 @@ export default function App() {
     };
   });
   const [query, setQuery] = useState(null);
+  const [housingType, setHousingType] = useState('apartment');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -88,10 +89,18 @@ export default function App() {
   });
   return <main className="dashboard">
     <header className="topbar"><a href="/" className="brand"><span className="brand-icon">A</span> Apart<span>Search</span></a><span className="source-badge">국토교통부 공공데이터</span></header>
-    <section className="hero"><span className="eyebrow">APARTMENT TRANSACTIONS</span><h1>아파트 거래 정보,<br />한눈에 살펴보세요.</h1><p>지역과 계약월로 실제 매매 거래를 확인하세요.</p></section>
-    <form className="search-container" onSubmit={e => { e.preventDefault(); search({ ...values }); }}>
+    <section className="hero"><span className="eyebrow">HOUSING TRANSACTIONS</span><h1>주택 거래 정보,<br />한눈에 살펴보세요.</h1><p>지역과 계약월로 실제 매매 거래를 확인하세요.</p></section>
+    <form className="search-container" onSubmit={e => {
+      e.preventDefault();
+      search(housingType === 'apartment' ? { ...values } : { ...values, housingType });
+    }}>
       <div className="section-heading"><h2>거래 검색</h2><span>원하는 조건으로 찾아보세요</span></div>
       <div className="search-fields">
+        <label>주택 유형<select value={housingType} onChange={e => setHousingType(e.target.value)} disabled={loading}>
+          <option value="all">전체</option>
+          <option value="apartment">아파트</option>
+          <option value="villa">빌라</option>
+        </select></label>
         <div className="region-fields">
           <label>시·도<select aria-label="시·도" value={selectedProvince.code} onChange={handleProvince} disabled={loading}>{regions.map(region => <option key={region.code} value={region.code}>{region.name}</option>)}</select></label>
           <label>시·군·구<select aria-label="시·군·구" value={values.lawdCd.slice(2)} onChange={handleDistrict} disabled={loading}><option value="">전체</option>{selectedProvince.districts.map(district => <option key={district.code} value={district.code}>{district.name}</option>)}</select></label>
@@ -110,16 +119,16 @@ export default function App() {
     </form>
     {loading && <div className="empty-state" role="status"><span className="spinner" />거래 정보를 가져오고 있습니다.</div>}
     {error && <div className="error-state" role="alert">{error}<button onClick={() => search(query || values)}>다시 시도</button></div>}
-    {!loading && !error && !result && <div className="empty-state"><span className="empty-icon">⌕</span><h2>어떤 지역이 궁금하신가요?</h2><p>조건을 입력하고 검색하면 아파트 실거래 내역이 표시됩니다.</p></div>}
+    {!loading && !error && !result && <div className="empty-state"><span className="empty-icon">⌕</span><h2>어떤 지역이 궁금하신가요?</h2><p>조건을 입력하고 검색하면 주택 실거래 내역이 표시됩니다.</p></div>}
     {result && <section className="results">
       <div className="results-heading"><div><span className="eyebrow">SEARCH RESULTS</span><h2>매매 거래 내역 <span className="count">{result.totalCount.toLocaleString()}건</span></h2></div><span className="result-meta">{regionName(query.lawdCd)} · {query.dealYMD.slice(0,4)}년 {query.dealYMD.slice(4)}월</span></div>
       {result.items.length === 0 ? <div className="empty-state"><h2>검색 결과가 없습니다.</h2><p>지역이나 계약월을 바꿔 다시 검색해 보세요.</p></div> : <>
-        <p className="sort-hint">컬럼명을 클릭해 현재 페이지를 정렬하세요. 아파트 / 도로명은 아파트 이름, 층 / 동은 층수를 기준으로 정렬합니다.</p>
+        <p className="sort-hint">컬럼명을 클릭해 현재 페이지를 정렬하세요. 건물명 / 주소는 건물명, 층 / 동은 층수를 기준으로 정렬합니다.</p>
         <div className="table-scroll"><table><thead><tr>{columns.map(column => <th key={column.key} scope="col" aria-sort={sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button className="sort-button" onClick={() => changeSort(column.key)}>{column.label}<span aria-hidden="true">{sort.key === column.key ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>)}</tr></thead>
-        <tbody>{sortedItems.map(({apt,index:i}) => <tr key={`${result.pageNo}-${i}`}><td className="muted">{(result.pageNo-1)*result.numOfRows+i+1}</td><td><strong>{apt.aptNm || '—'}</strong><small>{apt.roadNm || '도로명 정보 없음'}</small></td><td className="amount">{apt.dealAmount || '—'}</td><td>{apt.excluUseAr || '—'}</td><td>{apt.floor ?? '—'}층<small>{apt.aptDong || '—'}</small></td><td>{[apt.dealYear,apt.dealMonth,apt.dealDay].filter(Boolean).join('.') || '—'}</td><td>{apt.buildYear || '—'}</td><td><span className="tag">{apt.dealingGbn || '—'}</span></td><td>{apt.buyerGbn || '—'}</td><td>{apt.estateAgentSggNm || '—'}</td></tr>)}</tbody></table></div>
+        <tbody>{sortedItems.map(({apt,index:i}) => <tr key={`${result.pageNo}-${i}`}><td className="muted">{(result.pageNo-1)*result.numOfRows+i+1}</td><td><strong>{apt.aptNm || '—'}</strong>{query.housingType === 'all' && <span className="tag housing-tag">{apt.housingType === 'villa' ? '빌라' : '아파트'}</span>}{query.housingType === 'all' && <span className="tag housing-tag">{apt.housingType === 'villa' ? '빌라' : '아파트'}</span>}<small>{apt.roadNm || '주소 정보 없음'}</small></td><td className="amount">{apt.dealAmount || '—'}</td><td>{apt.excluUseAr || '—'}</td><td>{apt.floor ?? '—'}층<small>{apt.aptDong || '—'}</small></td><td>{[apt.dealYear,apt.dealMonth,apt.dealDay].filter(Boolean).join('.') || '—'}</td><td>{apt.buildYear || '—'}</td><td><span className="tag">{apt.dealingGbn || '—'}</span></td><td>{apt.buyerGbn || '—'}</td><td>{apt.estateAgentSggNm || '—'}</td></tr>)}</tbody></table></div>
         <div className="pagination-footer"><span>{result.pageNo} / {totalPages} 페이지</span><nav aria-label="검색 결과 페이지"><button disabled={loading || result.pageNo <= 1} onClick={() => search(query,result.pageNo-1)}>이전</button>{pages.map(page => <button key={page} className={page===result.pageNo ? 'active' : ''} aria-current={page===result.pageNo ? 'page' : undefined} disabled={loading || page===result.pageNo} onClick={() => search(query,page)}>{page}</button>)}<button disabled={loading || result.pageNo>=totalPages} onClick={() => search(query,result.pageNo+1)}>다음</button></nav></div>
       </>}
     </section>}
-    <footer>국토교통부 아파트 매매 실거래가 자료 · 신고 및 정정에 따라 조회 결과가 달라질 수 있습니다.</footer>
+    <footer>국토교통부 주택 매매 실거래가 자료 · 신고 및 정정에 따라 조회 결과가 달라질 수 있습니다.</footer>
   </main>;
 }

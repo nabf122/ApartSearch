@@ -86,7 +86,7 @@ test('sorts money numerically, toggles direction, sorts dates and keeps missing 
   expect(names()).toEqual(['가 아파트', '나 아파트', '다 아파트']);
   fireEvent.click(screen.getByRole('button', { name: '층 / 동' }));
   expect(names()).toEqual(['가 아파트', '다 아파트', '나 아파트']);
-  fireEvent.click(screen.getByRole('button', { name: '아파트 / 도로명' }));
+  fireEvent.click(screen.getByRole('button', { name: '건물명 / 주소' }));
   expect(names()).toEqual(['가 아파트', '나 아파트', '다 아파트']);
   expect(axios.get).toHaveBeenCalledTimes(1);
 });

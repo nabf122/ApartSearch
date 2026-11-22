@@ -6,6 +6,10 @@ require('dotenv').config({ path: path.join(__dirname, '.env.server.local'), quie
 const parser = new XMLParser({ parseTagValue: false, trimValues: true });
 const regions = require('./src/regions.json');
 const clients = new WeakMap();
+const services = {
+  apartment: 'RTMSDataSvcAptTradeDev',
+  villa: 'RTMSDataSvcRHTrade2',
+};
 
 async function mapLimited(values, mapper) {
   const results = new Array(values.length);
@@ -19,14 +23,15 @@ async function mapLimited(values, mapper) {
   return results;
 }
 
-async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows) {
+async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows, housingType = 'apartment') {
   if (!clients.has(fetcher)) clients.set(fetcher, { queue: Promise.resolve(), cache: new Map(), lastCall: 0 });
   const client = clients.get(fetcher);
-  async function request(code, page) {
-    const cacheKey = JSON.stringify([key, code, dealYMD, page, numOfRows]);
+  async function request({code, type}, page) {
+    const cacheKey = JSON.stringify([key, code, type, dealYMD, page, numOfRows]);
     const cached = client.cache.get(cacheKey);
     if (cached && cached.expires > Date.now()) return cached.promise;
-    const upstream = new URL('https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev');
+    const service = services[type];
+    const upstream = new URL(`https://apis.data.go.kr/1613000/${service}/get${service}`);
     upstream.search = new URLSearchParams({serviceKey:key,LAWD_CD:code,DEAL_YMD:dealYMD,pageNo:String(page),numOfRows:String(numOfRows)});
     const run = async () => {
       if (fetcher === fetch) {
@@ -38,9 +43,19 @@ async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows)
       if (!response.ok) {
         const error = new Error('Upstream HTTP failure');
         error.status = response.status;
+        error.housingType = type;
         throw error;
       }
-      return normalize(await response.text(), page, numOfRows);
+      const result = normalize(await response.text(), page, numOfRows);
+      if (type === 'villa') {
+        result.items = result.items.map(item => ({
+          ...item,
+          aptNm: item.mhouseNm,
+          roadNm: [item.umdNm, item.jibun].filter(Boolean).join(' '),
+          housingType: type,
+        }));
+      }
+      return result;
     };
     const promise = client.queue.then(run);
     client.queue = promise.catch(() => {});
@@ -48,19 +63,22 @@ async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows)
     client.cache.set(cacheKey, { promise, expires: Date.now() + 300000 });
     try { return await promise; } catch (error) { client.cache.delete(cacheKey); throw error; }
   }
-  if (lawdCd.length === 5) return request(lawdCd, pageNo);
-  const province = regions.find(region => region.code === lawdCd);
-  const firstPages = await mapLimited(province.districts, async district => ({code: province.code + district.code, data: await request(province.code + district.code, 1)}));
+  const types = housingType === 'all' ? Object.keys(services) : [housingType];
+  const codes = lawdCd.length === 5 ? [lawdCd] : regions.find(region => region.code === lawdCd)
+    .districts.map(district => lawdCd + district.code);
+  const sources = codes.flatMap(code => types.map(type => ({code, type})));
+  if (sources.length === 1) return request(sources[0], pageNo);
+  const firstPages = await mapLimited(sources, async source => ({source, data: await request(source, 1)}));
   const start = (pageNo - 1) * numOfRows;
   const end = start + numOfRows;
   let offset = 0;
   const items = [];
-  for (const {code, data} of firstPages) {
+  for (const {source, data} of firstPages) {
     const localStart = Math.max(0, start - offset);
     const localEnd = Math.min(data.totalCount, end - offset);
     if (localEnd > localStart) {
       for (let page = Math.floor(localStart / numOfRows) + 1; page <= Math.ceil(localEnd / numOfRows); page++) {
-        const part = page === 1 ? data : await request(code, page);
+        const part = page === 1 ? data : await request(source, page);
         const pageStart = (page - 1) * numOfRows;
         items.push(...part.items.slice(Math.max(0, localStart - pageStart), Math.min(numOfRows, localEnd - pageStart)));
       }
@@ -100,17 +118,21 @@ function createServer(fetcher = fetch) {
       const dealYMD = url.searchParams.get('dealYMD');
       const pageNo = Number(url.searchParams.get('pageNo') || 1);
       const numOfRows = Number(url.searchParams.get('numOfRows') || 20);
+      const housingType = url.searchParams.get('housingType') ?? 'apartment';
+      if (!['all', 'apartment', 'villa'].includes(housingType)) return send(400,{error:'주택 유형을 확인하세요.'});
       const validRegion = regions.some(province => lawdCd === province.code || province.districts.some(district => lawdCd === province.code + district.code));
       if (!validRegion || !/^\d{4}(0[1-9]|1[0-2])$/.test(dealYMD || '') || !Number.isInteger(pageNo) || pageNo < 1 || ![20,50,100,200].includes(numOfRows)) return send(400,{error:'지역코드, 계약월, 페이지 조건을 확인하세요.'});
       const key = process.env.APART_API_SERVICE_KEY;
       if (!key) return send(503,{error:'서버의 API 인증키가 설정되지 않았습니다.'});
       try {
-        return send(200, await queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows));
+        return send(200, await queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows, housingType));
       } catch (err) {
         const code = err.cause?.code;
         // URL과 원본 오류 메시지에는 인증키가 포함될 수 있으므로 기록하지 않습니다.
         console.error('[apartments] upstream failure', { name: err.name, code, status: err.status, syscall: err.cause?.syscall });
-        const message = err.status === 429
+        const message = err.housingType === 'villa' && [401, 403].includes(err.status)
+          ? '빌라 조회 권한을 확인해 주세요. 공공데이터포털에서 연립다세대 매매 실거래가 API 활용신청이 필요합니다.'
+          : err.status === 429
           ? '공공데이터 API 요청 제한에 도달했습니다. 잠시 후 다시 조회해 주세요.'
           : err.name === 'TimeoutError'
           ? '조회 시간이 초과되었습니다. 다시 시도해 주세요.'
