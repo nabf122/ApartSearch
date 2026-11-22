@@ -42,6 +42,25 @@ test('all housing types paginate across providers and normalize villa rows', asy
   assert.equal(result.items[5].roadNm, '청운동 1');
   assert.equal(result.items[5].housingType, 'villa');
 });
+test('price filtering includes both bounds and matches on later provider pages', async () => {
+  const transactions = [
+    ...Array.from({length: 199}, () => ({dealAmount: '4,999'})),
+    {dealAmount: '5,000'}, {dealAmount: '10,000'}, {dealAmount: '10,001'}, {},
+  ];
+  const fetcher = async url => {
+    const size = Number(url.searchParams.get('numOfRows'));
+    const page = Number(url.searchParams.get('pageNo'));
+    const item = transactions.slice((page - 1) * size, page * size);
+    return {ok: true, text: async () => JSON.stringify({
+      response: {header: {resultCode: '000'}, body: {totalCount: transactions.length, items: {item}}},
+    })};
+  };
+  const result = await queryApartments(fetcher, 'test', '11110', '202610', 2, 1, 'apartment', {
+    minPrice: 5000, maxPrice: 10000,
+  });
+  assert.equal(result.totalCount, 2);
+  assert.deepEqual(result.items, [{dealAmount: '10,000'}]);
+});
 const xml = items => `<response><header><resultCode>000</resultCode></header><body><totalCount>${items ? 1 : 0}</totalCount><items>${items}</items></body></response>`;
 test('normalizes XML single item, empty items and JSON arrays', () => {
   assert.equal(normalize(xml('<item><aptNm>테스트</aptNm><dealAmount>50,000</dealAmount></item>'),1,10).items[0].dealAmount,'50,000');

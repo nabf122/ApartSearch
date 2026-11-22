@@ -23,16 +23,16 @@ async function mapLimited(values, mapper) {
   return results;
 }
 
-async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows, housingType = 'apartment') {
+async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows, housingType = 'apartment', priceRange = null) {
   if (!clients.has(fetcher)) clients.set(fetcher, { queue: Promise.resolve(), cache: new Map(), lastCall: 0 });
   const client = clients.get(fetcher);
-  async function request({code, type}, page) {
-    const cacheKey = JSON.stringify([key, code, type, dealYMD, page, numOfRows]);
+  async function request({code, type}, page, pageSize = numOfRows) {
+    const cacheKey = JSON.stringify([key, code, type, dealYMD, page, pageSize]);
     const cached = client.cache.get(cacheKey);
     if (cached && cached.expires > Date.now()) return cached.promise;
     const service = services[type];
     const upstream = new URL(`https://apis.data.go.kr/1613000/${service}/get${service}`);
-    upstream.search = new URLSearchParams({serviceKey:key,LAWD_CD:code,DEAL_YMD:dealYMD,pageNo:String(page),numOfRows:String(numOfRows)});
+    upstream.search = new URLSearchParams({serviceKey:key,LAWD_CD:code,DEAL_YMD:dealYMD,pageNo:String(page),numOfRows:String(pageSize)});
     const run = async () => {
       if (fetcher === fetch) {
         const wait = Math.max(0, 1100 - (Date.now() - client.lastCall));
@@ -46,7 +46,7 @@ async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows,
         error.housingType = type;
         throw error;
       }
-      const result = normalize(await response.text(), page, numOfRows);
+      const result = normalize(await response.text(), page, pageSize);
       if (type === 'villa') {
         result.items = result.items.map(item => ({
           ...item,
@@ -67,6 +67,28 @@ async function queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows,
   const codes = lawdCd.length === 5 ? [lawdCd] : regions.find(region => region.code === lawdCd)
     .districts.map(district => lawdCd + district.code);
   const sources = codes.flatMap(code => types.map(type => ({code, type})));
+  if (priceRange) {
+    const {minPrice, maxPrice} = priceRange;
+    const pageSize = 200;
+    const matches = await mapLimited(sources, async source => {
+      const first = await request(source, 1, pageSize);
+      const matchingItems = [];
+      const totalPages = Math.ceil(first.totalCount / pageSize);
+      for (let page = 1; page <= totalPages; page++) {
+        const data = page === 1 ? first : await request(source, page, pageSize);
+        for (const item of data.items) {
+          const rawAmount = String(item.dealAmount ?? '').replace(/,/g, '').trim();
+          if (!/^\d+$/.test(rawAmount)) continue;
+          const amount = Number(rawAmount);
+          if (amount >= minPrice && amount <= maxPrice) matchingItems.push(item);
+        }
+      }
+      return matchingItems;
+    });
+    const items = matches.flat();
+    const start = (pageNo - 1) * numOfRows;
+    return {items: items.slice(start, start + numOfRows), totalCount: items.length, pageNo, numOfRows};
+  }
   if (sources.length === 1) return request(sources[0], pageNo);
   const firstPages = await mapLimited(sources, async source => ({source, data: await request(source, 1)}));
   const start = (pageNo - 1) * numOfRows;
@@ -119,13 +141,21 @@ function createServer(fetcher = fetch) {
       const pageNo = Number(url.searchParams.get('pageNo') || 1);
       const numOfRows = Number(url.searchParams.get('numOfRows') || 20);
       const housingType = url.searchParams.get('housingType') ?? 'apartment';
+      const minPrice = url.searchParams.get('minPrice');
+      const maxPrice = url.searchParams.get('maxPrice');
+      const validPrice = value => value !== null && /^\d+$/.test(value) && Number(value) <= 100000 && Number(value) % 1000 === 0;
+      const usePrice = minPrice !== null || maxPrice !== null;
+      if (usePrice && (!validPrice(minPrice) || !validPrice(maxPrice) || Number(minPrice) > Number(maxPrice))) {
+        return send(400,{error:'가격 범위를 0원부터 10억원까지 1천만원 단위로 선택하세요.'});
+      }
+      const priceRange = usePrice ? {minPrice: Number(minPrice), maxPrice: Number(maxPrice)} : null;
       if (!['all', 'apartment', 'villa'].includes(housingType)) return send(400,{error:'주택 유형을 확인하세요.'});
       const validRegion = regions.some(province => lawdCd === province.code || province.districts.some(district => lawdCd === province.code + district.code));
       if (!validRegion || !/^\d{4}(0[1-9]|1[0-2])$/.test(dealYMD || '') || !Number.isInteger(pageNo) || pageNo < 1 || ![20,50,100,200].includes(numOfRows)) return send(400,{error:'지역코드, 계약월, 페이지 조건을 확인하세요.'});
       const key = process.env.APART_API_SERVICE_KEY;
       if (!key) return send(503,{error:'서버의 API 인증키가 설정되지 않았습니다.'});
       try {
-        return send(200, await queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows, housingType));
+        return send(200, await queryApartments(fetcher, key, lawdCd, dealYMD, pageNo, numOfRows, housingType, priceRange));
       } catch (err) {
         const code = err.cause?.code;
         // URL과 원본 오류 메시지에는 인증키가 포함될 수 있으므로 기록하지 않습니다.

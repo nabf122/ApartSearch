@@ -13,6 +13,33 @@ test('renders search and initial guidance without requesting data', () => {
   expect(screen.getByLabelText('조회 건수')).toHaveValue('20');
   expect(within(screen.getByLabelText('조회 건수')).getAllByRole('option').map(option => option.value)).toEqual(['20', '50', '100', '200']);
 });
+test('opens the transaction location in a new Google Maps tab', async () => {
+  const result = response();
+  Object.assign(result.data.items[0], {sggCd: '11110', umdNm: '청운동', jibun: '12-3'});
+  axios.get.mockResolvedValue(result);
+  render(<App />);
+  await submit();
+  const link = screen.getByRole('link', {name: '테스트 아파트'});
+  const url = new URL(link.href);
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(url.origin + url.pathname).toBe('https://www.google.com/maps/search/');
+  expect(url.searchParams.get('api')).toBe('1');
+  expect(url.searchParams.get('query')).toBe('서울특별시 종로구 청운동 12-3 테스트 아파트');
+});
+test('sends the selected price range and clears it when disabled', async () => {
+  axios.get.mockResolvedValue(response());
+  render(<App />);
+  const toggle = screen.getByRole('checkbox', {name: '가격 범위 사용'});
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  fireEvent.change(screen.getByRole('slider', {name: '최소 거래금액'}), {target: {value: '5000'}});
+  fireEvent.change(screen.getByRole('slider', {name: '최대 거래금액'}), {target: {value: '10000'}});
+  await submit();
+  expect(axios.get.mock.calls.at(-1)[1].params).toMatchObject({minPrice: 5000, maxPrice: 10000});
+  fireEvent.click(toggle);
+  await submit();
+  expect(axios.get.mock.calls.at(-1)[1].params).not.toHaveProperty('maxPrice');
+});
 test('defaults to December of the previous year in January', () => {
   jest.setSystemTime(new Date(2027, 0, 31));
   render(<App />);
@@ -76,7 +103,8 @@ test('sorts money numerically, toggles direction, sorts dates and keeps missing 
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: '거래 검색 →' }));
   await screen.findByText('가 아파트');
-  const names = () => screen.getAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell')[1].querySelector('strong').textContent);
+  const names = () => screen.getAllByRole('row').slice(1).map(row =>
+    within(row).getByRole('link').firstChild.textContent);
   fireEvent.click(screen.getByRole('button', { name: '거래 금액 (만원)' }));
   expect(names()).toEqual(['가 아파트', '나 아파트', '다 아파트']);
   fireEvent.click(screen.getByRole('button', { name: '거래 금액 (만원)' }));

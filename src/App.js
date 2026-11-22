@@ -15,6 +15,12 @@ const columns = [
   { key: 'buyerGbn', label: '매수자 구분' },
   { key: 'estateAgentSggNm', label: '중개사 소재지' },
 ];
+function formatPrice(amount) {
+  const eok = Math.floor(amount / 10000);
+  const man = amount % 10000;
+  if (!eok) return amount ? `${man.toLocaleString('ko-KR')}만원` : '0원';
+  return man ? `${eok}억 ${man.toLocaleString('ko-KR')}만원` : `${eok}억원`;
+}
 function sortValue(apt, column, index) {
   if (column.key === 'index') return index;
   if (column.key === 'date') {
@@ -40,6 +46,9 @@ export default function App() {
   });
   const [query, setQuery] = useState(null);
   const [housingType, setHousingType] = useState('apartment');
+  const [usePrice, setUsePrice] = useState(false);
+  const [minPrice, setMinPrice] = useState(0);
+  const [maxPrice, setMaxPrice] = useState(100000);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -57,6 +66,14 @@ export default function App() {
     if (code.length === 2) return `${province.name} 전체`;
     const district = province?.districts.find(region => region.code === code.slice(2));
     return district?.name === '전체' ? province.name : `${province?.name || ''} ${district?.name || ''}`.trim();
+  };
+  const mapUrl = apt => {
+    const address = [apt.umdNm, apt.jibun].filter(Boolean).join(' ') || apt.roadNm;
+    if (!address && !apt.aptNm) return null;
+    const code = /^\d{5}$/.test(apt.sggCd) ? apt.sggCd : query.lawdCd;
+    const region = code.length === 2 ? regions.find(province => province.code === code)?.name : regionName(code);
+    const location = [region, address, apt.aptNm].filter(Boolean).join(' ');
+    return `https://www.google.com/maps/search/?${new URLSearchParams({ api: '1', query: location })}`;
   };
   const years = Array.from({ length: new Date().getFullYear() - 2006 + 1 }, (_, i) => new Date().getFullYear() - i);
   const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
@@ -92,7 +109,10 @@ export default function App() {
     <section className="hero"><span className="eyebrow">HOUSING TRANSACTIONS</span><h1>주택 거래 정보,<br />한눈에 살펴보세요.</h1><p>지역과 계약월로 실제 매매 거래를 확인하세요.</p></section>
     <form className="search-container" onSubmit={e => {
       e.preventDefault();
-      search(housingType === 'apartment' ? { ...values } : { ...values, housingType });
+      const params = { ...values };
+      if (housingType !== 'apartment') params.housingType = housingType;
+      if (usePrice) Object.assign(params, { minPrice, maxPrice });
+      search(params);
     }}>
       <div className="section-heading"><h2>거래 검색</h2><span>원하는 조건으로 찾아보세요</span></div>
       <div className="search-fields">
@@ -115,6 +135,33 @@ export default function App() {
         </div>
         <label>조회 건수<select aria-label="조회 건수" name="numOfRows" value={values.numOfRows} onChange={handleChange} disabled={loading}>{[20,50,100,200].map(n => <option key={n} value={n}>{n}건씩 보기</option>)}</select><small>페이지당 표시할 거래 수</small></label>
         <button className="search-button" disabled={loading}>{loading ? '조회 중…' : '거래 검색 →'}</button>
+        <fieldset className="price-filter" disabled={loading}>
+          <legend>거래금액</legend>
+          <label className="price-toggle">
+            <input type="checkbox" checked={usePrice} onChange={e => setUsePrice(e.target.checked)} />
+            가격 범위 사용
+          </label>
+          {usePrice && <div className="price-range">
+            <label>
+              <span className="price-slider-label">최소 거래금액 <output>{formatPrice(minPrice)}</output></span>
+              <input type="range" aria-label="최소 거래금액" aria-valuetext={formatPrice(minPrice)}
+                min={0} max={100000} step={1000} value={minPrice} onChange={e => {
+                  const amount = Number(e.target.value);
+                  setMinPrice(amount);
+                  setMaxPrice(current => Math.max(current, amount));
+                }} />
+            </label>
+            <label>
+              <span className="price-slider-label">최대 거래금액 <output>{formatPrice(maxPrice)}</output></span>
+              <input type="range" aria-label="최대 거래금액" aria-valuetext={formatPrice(maxPrice)}
+                min={0} max={100000} step={1000} value={maxPrice} onChange={e => {
+                  const amount = Number(e.target.value);
+                  setMaxPrice(amount);
+                  setMinPrice(current => Math.min(current, amount));
+                }} />
+            </label>
+          </div>}
+        </fieldset>
       </div>
     </form>
     {loading && <div className="empty-state" role="status"><span className="spinner" />거래 정보를 가져오고 있습니다.</div>}
@@ -125,7 +172,12 @@ export default function App() {
       {result.items.length === 0 ? <div className="empty-state"><h2>검색 결과가 없습니다.</h2><p>지역이나 계약월을 바꿔 다시 검색해 보세요.</p></div> : <>
         <p className="sort-hint">컬럼명을 클릭해 현재 페이지를 정렬하세요. 건물명 / 주소는 건물명, 층 / 동은 층수를 기준으로 정렬합니다.</p>
         <div className="table-scroll"><table><thead><tr>{columns.map(column => <th key={column.key} scope="col" aria-sort={sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button className="sort-button" onClick={() => changeSort(column.key)}>{column.label}<span aria-hidden="true">{sort.key === column.key ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button></th>)}</tr></thead>
-        <tbody>{sortedItems.map(({apt,index:i}) => <tr key={`${result.pageNo}-${i}`}><td className="muted">{(result.pageNo-1)*result.numOfRows+i+1}</td><td><strong>{apt.aptNm || '—'}</strong>{query.housingType === 'all' && <span className="tag housing-tag">{apt.housingType === 'villa' ? '빌라' : '아파트'}</span>}{query.housingType === 'all' && <span className="tag housing-tag">{apt.housingType === 'villa' ? '빌라' : '아파트'}</span>}<small>{apt.roadNm || '주소 정보 없음'}</small></td><td className="amount">{apt.dealAmount || '—'}</td><td>{apt.excluUseAr || '—'}</td><td>{apt.floor ?? '—'}층<small>{apt.aptDong || '—'}</small></td><td>{[apt.dealYear,apt.dealMonth,apt.dealDay].filter(Boolean).join('.') || '—'}</td><td>{apt.buildYear || '—'}</td><td><span className="tag">{apt.dealingGbn || '—'}</span></td><td>{apt.buyerGbn || '—'}</td><td>{apt.estateAgentSggNm || '—'}</td></tr>)}</tbody></table></div>
+        <tbody>{sortedItems.map(({apt,index:i}) => {
+          const href = mapUrl(apt);
+          return <tr key={`${result.pageNo}-${i}`}><td className="muted">{(result.pageNo-1)*result.numOfRows+i+1}</td><td><strong>{href
+          ? <a className="map-link" href={href} target="_blank" rel="noopener noreferrer" title="Google 지도에서 보기 (새 탭)">{apt.aptNm || '지도에서 보기'}<span aria-hidden="true"> ↗</span></a>
+          : '—'}</strong>{query.housingType === 'all' && <span className="tag housing-tag">{apt.housingType === 'villa' ? '빌라' : '아파트'}</span>}<small>{apt.roadNm || '주소 정보 없음'}</small></td><td className="amount">{apt.dealAmount || '—'}</td><td>{apt.excluUseAr || '—'}</td><td>{apt.floor ?? '—'}층<small>{apt.aptDong || '—'}</small></td><td>{[apt.dealYear,apt.dealMonth,apt.dealDay].filter(Boolean).join('.') || '—'}</td><td>{apt.buildYear || '—'}</td><td><span className="tag">{apt.dealingGbn || '—'}</span></td><td>{apt.buyerGbn || '—'}</td><td>{apt.estateAgentSggNm || '—'}</td></tr>;
+        })}</tbody></table></div>
         <div className="pagination-footer"><span>{result.pageNo} / {totalPages} 페이지</span><nav aria-label="검색 결과 페이지"><button disabled={loading || result.pageNo <= 1} onClick={() => search(query,result.pageNo-1)}>이전</button>{pages.map(page => <button key={page} className={page===result.pageNo ? 'active' : ''} aria-current={page===result.pageNo ? 'page' : undefined} disabled={loading || page===result.pageNo} onClick={() => search(query,page)}>{page}</button>)}<button disabled={loading || result.pageNo>=totalPages} onClick={() => search(query,result.pageNo+1)}>다음</button></nav></div>
       </>}
     </section>}
